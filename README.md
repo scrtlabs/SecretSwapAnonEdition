@@ -1,6 +1,6 @@
 # WIP
 
-## SecretSwapAnonEdition
+## SecretSwap: Anon Edition
 
 Private swaps for Secret Network! Uses private entropy pool for differential privacy when reporting pools sizes.
 
