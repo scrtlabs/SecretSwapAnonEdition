@@ -962,9 +962,9 @@ fn get_random_nom_denom<S: Storage, A: Api, Q: Querier>(
     let nom_noise = random_number as u128 % 100;
 
     if is_plus {
-        nom = 9_900 + nom_noise;
+        nom = denom + nom_noise;
     } else {
-        nom = 10_100 - nom_noise;
+        nom = denom - nom_noise;
     }
 
     Ok((nom, denom))
