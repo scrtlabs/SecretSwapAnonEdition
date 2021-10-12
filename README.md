@@ -2,7 +2,7 @@
 
 ## SecretSwapAnonEdition
 
-Completely private swaps for Secret Network! Uses private entropy pool for differential privacy when reporting pools sizes.
+Private swaps for Secret Network! Uses private entropy pool for differential privacy when reporting pools sizes.
 
 - Swap amounts are private in the range of +-1% of the real amounts.
 - Swap recipient is private.
