@@ -19,14 +19,6 @@ pub enum HandleMsg {
         assets: [Asset; 2],
         slippage_tolerance: Option<Decimal>,
     },
-    /// Swap an offer asset to the other
-    Swap {
-        offer_asset: Asset,
-        expected_return: Option<Uint128>,
-        belief_price: Option<Decimal>,
-        max_spread: Option<Decimal>,
-        to: Option<HumanAddr>,
-    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

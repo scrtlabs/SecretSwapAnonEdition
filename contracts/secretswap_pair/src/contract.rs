@@ -1,4 +1,5 @@
 use std::{
+    collections::hash_map::RandomState,
     ops::{Add, Mul, Sub},
     u128,
 };
@@ -23,6 +24,7 @@ use crate::{
         Cw20HookMsg, HandleMsg, PoolResponse, QueryMsg, ReverseSimulationResponse,
         SimulationResponse,
     },
+    state::{get_random_number, supply_more_entropy},
     u256_math::*,
 };
 
@@ -35,7 +37,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     msg: PairInitMsg,
 ) -> StdResult<InitResponse> {
     // create viewing key
-    let assets_viewing_key = String::from("SecretSwap");
+    let assets_viewing_key = String::from("SecretSwap"); // TODO make it private
 
     let mut asset0 = msg.asset_infos[0].to_raw(&deps)?;
     let mut asset1 = msg.asset_infos[1].to_raw(&deps)?;
@@ -104,12 +106,12 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         code_id: msg.token_code_id,
         msg: to_binary(&TokenInitMsg::new(
             format!(
-                "SecretSwap Liquidity Provider (LP) token for {}-{}",
+                "SecretSwapAnonEdition Liquidity Provider (LP) token for {}-{}",
                 &msg.asset_infos[0], &msg.asset_infos[1]
             ),
             env.contract.address.clone(),
-            "SWAP-LP".to_string(),
-            6,
+            "SWAP-ANON-LP".to_string(),
+            18,
             msg.prng_seed,
             InitHook {
                 msg: to_binary(&HandleMsg::PostInitialize {})?,
@@ -119,7 +121,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         ))?,
         send: vec![],
         label: format!(
-            "{}-{}-SecretSwap-LP-Token-{}",
+            "{}-{}-SecretSwapAnon-LP-Token-{}",
             &msg.asset_infos[0],
             &msg.asset_infos[1],
             &env.contract.address.clone()
@@ -168,6 +170,10 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: HandleMsg,
 ) -> HandleResult {
+    let mut fresh_entropy = to_binary(&msg)?.0;
+    fresh_entropy.extend(to_binary(&env)?.0);
+    supply_more_entropy(&mut deps.storage, fresh_entropy.as_slice())?;
+
     match msg {
         HandleMsg::Receive { amount, msg, from } => receive_cw20(deps, env, from, amount, msg),
         HandleMsg::PostInitialize {} => try_post_initialize(deps, env),
@@ -175,35 +181,12 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             assets,
             slippage_tolerance,
         } => try_provide_liquidity(deps, env, assets, slippage_tolerance),
-        HandleMsg::Swap {
-            offer_asset,
-            expected_return,
-            belief_price,
-            max_spread,
-            to,
-        } => {
-            if !offer_asset.is_native_token() {
-                return Err(StdError::unauthorized());
-            }
-
-            try_swap(
-                deps,
-                env.clone(),
-                env.message.sender,
-                offer_asset,
-                expected_return,
-                belief_price,
-                max_spread,
-                to,
-            )
-        }
     }
 }
 
 pub fn receive_cw20<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    //todo: figure out if this is "from" or "sender"
     from: HumanAddr,
     amount: Uint128,
     msg: Option<Binary>,
@@ -222,10 +205,9 @@ pub fn receive_cw20<S: Storage, A: Api, Q: Querier>(
                 let config: PairInfoRaw = read_pair_info(&deps.storage)?;
                 let pools: [Asset; 2] = config.query_pools(deps, &env.contract.address)?;
                 for pool in pools.iter() {
-                    if let AssetInfo::Token { contract_addr, .. } = &pool.info {
-                        if contract_addr == &env.message.sender {
-                            authorized = true;
-                        }
+                    let AssetInfo::Token { contract_addr, .. } = &pool.info;
+                    if contract_addr == &env.message.sender {
+                        authorized = true;
                     }
                 }
 
@@ -662,12 +644,19 @@ pub fn query_pool<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<PoolResponse> {
     let pair_info: PairInfoRaw = read_pair_info(&deps.storage)?;
     let contract_addr = deps.api.human_address(&pair_info.contract_addr)?;
-    let assets: [Asset; 2] = pair_info.query_pools(&deps, &contract_addr)?;
-    let total_share: Uint128 = query_supply(
+
+    let mut assets: [Asset; 2] = pair_info.query_pools(&deps, &contract_addr)?;
+
+    let (nom, denom) = get_random_nom_denom(deps)?;
+    assets[0].amount = Uint128(assets[0].amount.0 * nom / denom);
+    assets[1].amount = Uint128(assets[1].amount.0 * nom / denom);
+
+    let mut total_share: Uint128 = query_supply(
         &deps,
         &deps.api.human_address(&pair_info.liquidity_token)?,
         &pair_info.token_code_hash,
     )?;
+    total_share = Uint128(total_share.0 * nom / denom);
 
     let resp = PoolResponse {
         assets,
@@ -684,7 +673,11 @@ pub fn query_simulation<S: Storage, A: Api, Q: Querier>(
     let pair_info: PairInfoRaw = read_pair_info(&deps.storage)?;
 
     let contract_addr = deps.api.human_address(&pair_info.contract_addr)?;
-    let pools: [Asset; 2] = pair_info.query_pools(&deps, &contract_addr)?;
+    let mut pools: [Asset; 2] = pair_info.query_pools(&deps, &contract_addr)?;
+
+    let (nom, denom) = get_random_nom_denom(deps)?;
+    pools[0].amount = Uint128(pools[0].amount.0 * nom / denom);
+    pools[1].amount = Uint128(pools[1].amount.0 * nom / denom);
 
     let offer_pool: Asset;
     let ask_pool: Asset;
@@ -728,7 +721,11 @@ pub fn query_reverse_simulation<S: Storage, A: Api, Q: Querier>(
     let pair_info: PairInfoRaw = read_pair_info(&deps.storage)?;
 
     let contract_addr = deps.api.human_address(&pair_info.contract_addr)?;
-    let pools: [Asset; 2] = pair_info.query_pools(&deps, &contract_addr)?;
+    let mut pools: [Asset; 2] = pair_info.query_pools(&deps, &contract_addr)?;
+
+    let (nom, denom) = get_random_nom_denom(deps)?;
+    pools[0].amount = Uint128(pools[0].amount.0 * nom / denom);
+    pools[1].amount = Uint128(pools[1].amount.0 * nom / denom);
 
     let offer_pool: Asset;
     let ask_pool: Asset;
@@ -947,4 +944,28 @@ fn assert_slippage_tolerance(
     }
 
     Ok(())
+}
+
+fn get_random_nom_denom<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+) -> StdResult<(u128, u128)> {
+    let random_number: u64 = get_random_number(&deps.storage);
+    let is_plus = match random_number % 2 {
+        0 => true,
+        1 => false,
+        _ => return Err(StdError::generic_err("Unreacable")),
+    };
+
+    let nom: u128;
+    let denom: u128 = 10_000;
+
+    let nom_noise = random_number as u128 % 100;
+
+    if is_plus {
+        nom = 9_900 + nom_noise;
+    } else {
+        nom = 10_100 - nom_noise;
+    }
+
+    Ok((nom, denom))
 }

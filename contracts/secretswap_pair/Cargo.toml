@@ -31,7 +31,6 @@ schemars = "0.7"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }
 base64 = "0.13.0"
 primitive-types = { version = "0.9.0", default-features = false }
-#[dev-dependencies]
-#cosmwasm-vm = { version = "0.10.1", default-features = false }
-#cosmwasm-schema = "0.10.1"
-## terra-cosmwasm = { version = "1.2.2" }
+sha2 = "0.9.1"
+rand_chacha = "0.2.2"
+rand = "0.7.3"

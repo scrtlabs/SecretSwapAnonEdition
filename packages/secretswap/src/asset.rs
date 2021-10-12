@@ -57,14 +57,7 @@ impl Asset {
         deps: &Extern<S, A, Q>,
     ) -> StdResult<Coin> {
         let amount = self.amount;
-        if let AssetInfo::NativeToken { denom } = &self.info {
-            Ok(Coin {
-                denom: denom.to_string(),
-                amount: (amount - self.compute_tax(deps)?)?,
-            })
-        } else {
-            Err(StdError::generic_err("cannot deduct tax from token asset"))
-        }
+        Err(StdError::generic_err("cannot deduct tax from token asset"))
     }
 
     pub fn into_msg<S: Storage, A: Api, Q: Querier>(
@@ -93,35 +86,11 @@ impl Asset {
                 })?,
                 send: vec![],
             })),
-            AssetInfo::NativeToken { .. } => Ok(CosmosMsg::Bank(BankMsg::Send {
-                from_address: sender,
-                to_address: recipient,
-                amount: vec![self.deduct_tax(deps)?],
-            })),
         }
     }
 
     pub fn assert_sent_native_token_balance(&self, env: &Env) -> StdResult<()> {
-        if let AssetInfo::NativeToken { denom } = &self.info {
-            match env.message.sent_funds.iter().find(|x| x.denom == *denom) {
-                Some(coin) => {
-                    if self.amount == coin.amount {
-                        Ok(())
-                    } else {
-                        Err(StdError::generic_err("Native token balance mismatch between the argument and the transferred"))
-                    }
-                }
-                None => {
-                    if self.amount.is_zero() {
-                        Ok(())
-                    } else {
-                        Err(StdError::generic_err("Native token balance mismatch between the argument and the transferred"))
-                    }
-                }
-            }
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 
     pub fn to_raw<S: Storage, A: Api, Q: Querier>(
@@ -130,9 +99,6 @@ impl Asset {
     ) -> StdResult<AssetRaw> {
         Ok(AssetRaw {
             info: match &self.info {
-                AssetInfo::NativeToken { denom } => AssetInfoRaw::NativeToken {
-                    denom: denom.to_string(),
-                },
                 AssetInfo::Token {
                     contract_addr,
                     token_code_hash,
@@ -156,15 +122,11 @@ pub enum AssetInfo {
         token_code_hash: String,
         viewing_key: String,
     },
-    NativeToken {
-        denom: String,
-    },
 }
 
 impl fmt::Display for AssetInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AssetInfo::NativeToken { denom } => write!(f, "{}", denom),
             AssetInfo::Token { contract_addr, .. } => write!(f, "{}", contract_addr),
         }
     }
@@ -176,9 +138,6 @@ impl AssetInfo {
         deps: &Extern<S, A, Q>,
     ) -> StdResult<AssetInfoRaw> {
         match self {
-            AssetInfo::NativeToken { denom } => Ok(AssetInfoRaw::NativeToken {
-                denom: denom.to_string(),
-            }),
             AssetInfo::Token {
                 contract_addr,
                 viewing_key,
@@ -193,7 +152,6 @@ impl AssetInfo {
 
     pub fn is_native_token(&self) -> bool {
         match self {
-            AssetInfo::NativeToken { .. } => true,
             AssetInfo::Token { .. } => false,
         }
     }
@@ -214,9 +172,6 @@ impl AssetInfo {
                 &pool_addr,
                 &viewing_key,
             ),
-            AssetInfo::NativeToken { denom, .. } => {
-                query_balance(deps, pool_addr, denom.to_string())
-            }
         }
     }
 
@@ -226,14 +181,6 @@ impl AssetInfo {
                 let self_contract_addr = contract_addr;
                 match asset {
                     AssetInfo::Token { contract_addr, .. } => self_contract_addr == contract_addr,
-                    AssetInfo::NativeToken { .. } => false,
-                }
-            }
-            AssetInfo::NativeToken { denom, .. } => {
-                let self_denom = denom;
-                match asset {
-                    AssetInfo::Token { .. } => false,
-                    AssetInfo::NativeToken { denom, .. } => self_denom == denom,
                 }
             }
         }
@@ -253,9 +200,6 @@ impl AssetRaw {
     ) -> StdResult<Asset> {
         Ok(Asset {
             info: match &self.info {
-                AssetInfoRaw::NativeToken { denom } => AssetInfo::NativeToken {
-                    denom: denom.to_string(),
-                },
                 AssetInfoRaw::Token {
                     contract_addr,
                     viewing_key,
@@ -284,9 +228,6 @@ pub enum AssetInfoRaw {
         token_code_hash: String,
         viewing_key: String,
     },
-    NativeToken {
-        denom: String,
-    },
 }
 
 impl AssetInfoRaw {
@@ -295,9 +236,6 @@ impl AssetInfoRaw {
         deps: &Extern<S, A, Q>,
     ) -> StdResult<AssetInfo> {
         match self {
-            AssetInfoRaw::NativeToken { denom } => Ok(AssetInfo::NativeToken {
-                denom: denom.to_string(),
-            }),
             AssetInfoRaw::Token {
                 contract_addr,
                 viewing_key,
@@ -312,7 +250,6 @@ impl AssetInfoRaw {
 
     pub fn as_bytes(&self) -> &[u8] {
         match self {
-            AssetInfoRaw::NativeToken { denom } => denom.as_bytes(),
             AssetInfoRaw::Token { contract_addr, .. } => contract_addr.as_slice(),
         }
     }
@@ -325,14 +262,6 @@ impl AssetInfoRaw {
                     AssetInfoRaw::Token { contract_addr, .. } => {
                         self_contract_addr == contract_addr
                     }
-                    AssetInfoRaw::NativeToken { .. } => false,
-                }
-            }
-            AssetInfoRaw::NativeToken { denom, .. } => {
-                let self_denom = denom;
-                match asset {
-                    AssetInfoRaw::Token { .. } => false,
-                    AssetInfoRaw::NativeToken { denom, .. } => self_denom == denom,
                 }
             }
         }
